@@ -5,6 +5,7 @@
 #include "engine.h"
 #include "players.h"
 #include "database.h"
+#include "gui.h"
 
 void flush_input() {
     int c;
@@ -38,6 +39,30 @@ int get_game_mode() {
             return mode;
         }
         printf("Error: Please enter a number between 1 and 4: ");
+    }
+}
+
+int get_display_mode() {
+    int mode;
+    int parsed;
+
+    printf("\nSelect Display Mode:\n");
+    printf("  1 - Console (text)\n");
+    printf("  2 - Graphical (SDL2 window)\n");
+    printf("\nEnter choice (1-2): ");
+
+    while (1) {
+        parsed = scanf("%d", &mode);
+        flush_input();
+
+        if (parsed == EOF) {
+            return -1;
+        }
+
+        if (parsed == 1 && (mode == 1 || mode == 2)) {
+            return mode;
+        }
+        printf("Error: Please enter 1 or 2: ");
     }
 }
 
@@ -75,10 +100,31 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    int display_mode = get_display_mode();
+    if (display_mode == -1) {
+        printf("EOF detected. Shutting down.\n");
+        free_game_state(st);
+        return 0;
+    }
+
+    DisplayFn display_fn = display_board;
+    MoveFn human_move_fn = Human_Move;
+
+    if (display_mode == 2) {
+        if (!init_gui(rows, cols)) {
+            fprintf(stderr, "Could not start the graphical window - continuing in console mode.\n");
+            display_mode = 1;
+        } else {
+            display_fn = display_board_gui;
+            human_move_fn = GUI_Human_Move;
+        }
+    }
+
     int game_mode = get_game_mode();
     
     if (game_mode == -1) {
         printf("EOF detected. Shutting down.\n");
+        if (display_mode == 2) shutdown_gui();
         free_game_state(st);
         return 0;
     }
@@ -90,16 +136,16 @@ int main(int argc, char *argv[]) {
     int *replay_moves_ptr = NULL;
     
     if (game_mode == 1) {
-        players[0].move = Human_Move;
+        players[0].move = human_move_fn;
         players[0].ctx = NULL;
         players[0].token = 'X';
         
-        players[1].move = Human_Move;
+        players[1].move = human_move_fn;
         players[1].ctx = NULL;
         players[1].token = 'O';
         
     } else if (game_mode == 2) {
-        players[0].move = Human_Move;
+        players[0].move = human_move_fn;
         players[0].ctx = NULL;
         players[0].token = 'X';
 
@@ -109,6 +155,7 @@ int main(int argc, char *argv[]) {
             flush_input();
             
             if (parsed == EOF) {
+                if (display_mode == 2) shutdown_gui();
                 free_game_state(st);
                 return 0;
             }
@@ -127,7 +174,7 @@ int main(int argc, char *argv[]) {
         players[1].token = 'O';
         
     } else if (game_mode == 3) {
-        players[0].move = Human_Move;
+        players[0].move = human_move_fn;
         players[0].ctx = NULL;
         players[0].token = 'X';
         
@@ -135,6 +182,7 @@ int main(int argc, char *argv[]) {
         printf("Enter file path for Player O moves: ");
         if (scanf("%99s", filename) != 1) {
             printf("Error reading file path.\n");
+            if (display_mode == 2) shutdown_gui();
             free_game_state(st);
             return 1;
         }
@@ -143,6 +191,7 @@ int main(int argc, char *argv[]) {
         file_ctx = fopen(filename, "r");
         if (!file_ctx) {
             printf("Error: Could not open file '%s'.\n", filename);
+            if (display_mode == 2) shutdown_gui();
             free_game_state(st);
             return 1;
         }
@@ -162,6 +211,7 @@ int main(int argc, char *argv[]) {
         
         if (!load_game_for_replay("database.dat", game_name, &out_rows, &out_cols, &out_move_history, &out_moves)) {
             printf("Failed to load game for replay.\n");
+            if (display_mode == 2) shutdown_gui();
             free_game_state(st);
             return 1;
         }
@@ -175,6 +225,7 @@ int main(int argc, char *argv[]) {
         st = init_game_state(rows, cols);
         if (!st) {
             fprintf(stderr, "Failed to initialize replay board.\n");
+            if (display_mode == 2) shutdown_gui();
             free(out_move_history);
             return 1;
         }
@@ -196,6 +247,7 @@ int main(int argc, char *argv[]) {
     int *move_history = malloc(max_moves * sizeof(int));
     if (!move_history) {
         fprintf(stderr, "Fatal Error: Memory allocation failed for move history. System abort.\n");
+        if (display_mode == 2) shutdown_gui();
         free_game_state(st);
         return 1;
     }
@@ -203,7 +255,7 @@ int main(int argc, char *argv[]) {
 
     printf("\nInitialization complete. Engaging core engine...\n\n");
 
-    int winner = play_game(st, players, move_history, &move_count);
+    int winner = play_game(st, players, move_history, &move_count, display_fn);
 
     printf("\n========== MATCH RESULTS ==========\n");
     if (winner == 'X') {
@@ -246,6 +298,10 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
+    }
+
+    if (display_mode == 2) {
+        shutdown_gui();
     }
 
     free(move_history);

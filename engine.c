@@ -64,12 +64,12 @@ void display_board(const GameState *st) {
     printf("\n");
 }
 
-int play_game(GameState *st, Player players[2], int *move_history, int *move_count) {
+int play_game(GameState *st, Player players[2], int *move_history, int *move_count, DisplayFn display) {
     int current_turn = 0;
     int game_over = 0;
     int winner = 0;
 
-    display_board(st);
+    display(st);
 
     while (!game_over) {
         Player *current_player = &players[current_turn];
@@ -105,8 +105,8 @@ int play_game(GameState *st, Player players[2], int *move_history, int *move_cou
         if (placed) {
             move_history[*move_count] = col;
             (*move_count)++;
-            
-            display_board(st);
+          
+            display(st);
             
             if (check_win(st, current_player->token)) {
                 winner = current_player->token;

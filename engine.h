@@ -9,6 +9,7 @@
 
 typedef struct GameState GameState;
 typedef int (*MoveFn)(const GameState *st, void *ctx);
+typedef void (*DisplayFn)(const GameState *st);
 
 struct GameState {
     int rows;
@@ -25,7 +26,7 @@ typedef struct {
 GameState* init_game_state(int r, int c);
 void free_game_state(GameState *st);
 void display_board(const GameState *st);
-int play_game(GameState *st, Player players[2], int *move_history, int *move_count);
+int play_game(GameState *st, Player players[2], int *move_history, int *move_count, DisplayFn display);
 int check_win(const GameState *st, char token);
 int check_draw(const GameState *st);
 int is_valid_move(const GameState *st, int c);
