@@ -37,8 +37,7 @@ void free_game_state(GameState *st) {
 void display_board(const GameState *st) {
     printf("\n   ");
     for (int c = 0; c < st->cols; c++) {
-        if (c < 10) printf(" %d ", c);
-        else printf(" %d", c);
+        printf("%2d", c);
     }
     printf("\n");
     
@@ -85,9 +84,7 @@ int play_game(GameState *st, Player players[2], int *move_history, int *move_cou
         }
 
         if (!is_valid_move(st, col)) {
-            if (current_player->token == 'X') {
-                printf("Error: Column %d is out of bounds or full. Try again.\n", col);
-            }
+            printf("Error: Column %d is out of bounds or full. Try again.\n", col);
             continue;
         }
 
@@ -105,7 +102,7 @@ int play_game(GameState *st, Player players[2], int *move_history, int *move_cou
         if (placed) {
             move_history[*move_count] = col;
             (*move_count)++;
-          
+            
             display(st);
             
             if (check_win(st, current_player->token)) {

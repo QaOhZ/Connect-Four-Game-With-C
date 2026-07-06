@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
             return 0;
         }
         
-        if (parsed == 2 && rows >= 4 && rows < 12 && cols >= 4 && cols < 12) {
+        if (parsed == 2 && rows >= MIN_DIM && rows <= MAX_DIM && cols >= MIN_DIM && cols <= MAX_DIM) {
             break;
         }
         printf("Error: Invalid dimensions. Please enter two integers between 4 and 11.\n");
@@ -134,6 +134,7 @@ int main(int argc, char *argv[]) {
     FILE *file_ctx = NULL;
     ReplayContext replay_ctx;
     int *replay_moves_ptr = NULL;
+    AIContext ai_ctx;
     
     if (game_mode == 1) {
         players[0].move = human_move_fn;
@@ -166,7 +167,6 @@ int main(int argc, char *argv[]) {
             printf("Error: Invalid difficulty tier.\n");
         }
         
-        AIContext ai_ctx;
         ai_ctx.difficulty = difficulty;
         
         players[1].move = AI_Move;
@@ -203,7 +203,12 @@ int main(int argc, char *argv[]) {
     } else if (game_mode == 4) {
         char game_name[50];
         printf("Enter the name of the saved game to replay: ");
-        scanf("%49s", game_name);
+        if (scanf("%49s", game_name) != 1) {
+            printf("Error reading game name.\n");
+            if (display_mode == 2) shutdown_gui();
+            free_game_state(st);
+            return 1;
+        }
         flush_input();
         
         int out_rows, out_cols, out_moves;
