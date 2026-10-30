@@ -20,13 +20,13 @@ int save_game(const char *db_filename, const char *game_name, int rows, int cols
     }
     
     if (duplicate_found) {
-        printf("Save aborted: Game '%s' already exists. Older save preserved.\n", game_name);
+        fprintf(stderr, "error: save '%s' already exists\n", game_name);
         return 0;
     }
     
     FILE *db = fopen(db_filename, "a");
     if (!db) {
-        fprintf(stderr, "Error: Could not open database file for writing.\n");
+        fprintf(stderr, "error: cannot open %s for writing\n", db_filename);
         return 0;
     }
 
@@ -46,11 +46,10 @@ int save_game(const char *db_filename, const char *game_name, int rows, int cols
     return 1;
 }
 
-
 int load_game_for_replay(const char *db_filename, const char *target_name, int *out_rows, int *out_cols, int **out_moves, int *out_move_count) {
     FILE *db = fopen(db_filename, "r");
     if (!db) {
-        fprintf(stderr, "Error: Database file not found.\n");
+        fprintf(stderr, "error: cannot open database '%s'\n", db_filename);
         return 0;
     }
 
@@ -71,8 +70,8 @@ int load_game_for_replay(const char *db_filename, const char *target_name, int *
 
     if (!found) {
         fclose(db);
-        printf("Error: Game '%s' not found in database.\n", target_name);
-        return 0; 
+        fprintf(stderr, "error: game '%s' not found\n", target_name);
+        return 0;
     }
 
     if (fgets(line, sizeof(line), db) && strncmp(line, "Dimensions: ", 12) == 0) {
@@ -80,13 +79,13 @@ int load_game_for_replay(const char *db_filename, const char *target_name, int *
             *out_rows < 4 || *out_rows > MAX_DIM ||
             *out_cols < 4 || *out_cols > MAX_DIM) {
             fclose(db);
-            fprintf(stderr, "Error: Corrupted database format (dimensions out of range).\n");
+            fprintf(stderr, "error: corrupted database (invalid dimensions)\n");
             return 0;
         }
     } else {
-        fclose(db); 
-        fprintf(stderr, "Error: Corrupted database format (Dimensions missing).\n");
-        return 0; 
+        fclose(db);
+        fprintf(stderr, "error: corrupted database (missing dimensions)\n");
+        return 0;
     }
 
     if (fgets(line, sizeof(line), db) && strncmp(line, "Moves: ", 7) == 0) {
@@ -94,7 +93,7 @@ int load_game_for_replay(const char *db_filename, const char *target_name, int *
         *out_moves = malloc(max_moves * sizeof(int));
         if (!*out_moves) {
             fclose(db);
-            fprintf(stderr, "Error: Memory allocation failed while loading replay.\n");
+            fprintf(stderr, "error: memory allocation failed\n");
             return 0;
         }
         *out_move_count = 0;
@@ -105,11 +104,78 @@ int load_game_for_replay(const char *db_filename, const char *target_name, int *
             token = strtok(NULL, " \n");
         }
     } else {
-        fclose(db); 
-        fprintf(stderr, "Error: Corrupted database format (Moves missing).\n");
+        fclose(db);
+        fprintf(stderr, "error: corrupted database (missing moves)\n");
         return 0;
     }
 
     fclose(db);
     return 1;
+}
+
+int list_saved_games(const char *db_filename, SavedGameInfo *out_list, int max_entries) {
+    FILE *db = fopen(db_filename, "r");
+    if (!db) {
+        printf("No saved games found in '%s'.\n", db_filename);
+        return 0;
+    }
+
+    char line[MAX_DIM * MAX_DIM * 4 + 32];
+    int count = 0;
+    char current_name[50] = {0};
+    int current_rows = 0, current_cols = 0;
+    int in_game = 0;
+
+    while (fgets(line, sizeof(line), db) && count < max_entries) {
+        if (strncmp(line, "[GAME_START]", 12) == 0) {
+            in_game = 1;
+            current_name[0] = '\0';
+            current_rows = 0;
+            current_cols = 0;
+        } else if (in_game && strncmp(line, "Name: ", 6) == 0) {
+            line[strcspn(line, "\r\n")] = '\0';
+            snprintf(current_name, sizeof(current_name), "%.*s", (int)(sizeof(current_name) - 1), line + 6);
+        } else if (in_game && strncmp(line, "Dimensions: ", 12) == 0) {
+            sscanf(line + 12, "%d %d", &current_rows, &current_cols);
+        } else if (in_game && strncmp(line, "Moves: ", 7) == 0) {
+            int moves = 0;
+            char *p = line + 7;
+            while (*p) {
+                while (*p == ' ' || *p == '\t') p++;
+                if (*p >= '0' && *p <= '9') {
+                    moves++;
+                    while (*p >= '0' && *p <= '9') p++;
+                } else {
+                    p++;
+                }
+            }
+            if (out_list && count < max_entries) {
+                snprintf(out_list[count].name, sizeof(out_list[count].name), "%s", current_name);
+                out_list[count].rows = current_rows;
+                out_list[count].cols = current_cols;
+                out_list[count].move_count = moves;
+                count++;
+            }
+            in_game = 0;
+        }
+    }
+
+    fclose(db);
+
+    if (count > 0) {
+        printf("\nSaved games:\n");
+        for (int i = 0; i < count; i++) {
+            printf("  [%d] %-16s (%dx%d, %d moves)\n",
+                   i + 1,
+                   out_list[i].name,
+                   out_list[i].rows,
+                   out_list[i].cols,
+                   out_list[i].move_count);
+        }
+        printf("\n");
+    } else {
+        printf("\nNo saved games available.\n");
+    }
+
+    return count;
 }

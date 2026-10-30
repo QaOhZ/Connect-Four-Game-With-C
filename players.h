@@ -10,9 +10,9 @@ typedef struct {
     int difficulty;
 } AIContext;
 
-int Human_Move(const GameState *st, void *ctx);
-int File_Move(const GameState *st, void *ctx);
-int AI_Move(const GameState *st, void *ctx);
+int human_move_cli(const GameState *st, void *ctx);
+int file_move(const GameState *st, void *ctx);
+int ai_move(const GameState *st, void *ctx);
 
 int minimax(GameState *st, int depth, int alpha, int beta, int is_maximizing);
 int get_best_minimax_move(GameState *st, int depth);
@@ -31,6 +31,6 @@ typedef struct {
     int current_index;
 } ReplayContext;
 
-int Replay_Move(const GameState *st, void *ctx);
+int replay_move(const GameState *st, void *ctx);
 
 #endif

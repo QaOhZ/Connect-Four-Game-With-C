@@ -1,42 +1,75 @@
 #include "players.h"
+#include <SDL2/SDL.h>
+#include "gui.h"
 
-int Human_Move(const GameState *st, void *ctx) {
-    (void)ctx; 
+static void get_center_out_order(int cols, int order[MAX_DIM]) {
+    int mid = cols / 2;
+    int count = 0;
 
-    int col;
-    int parsed_items;
-
-    while (1) {
-        printf("Enter a column (0 to %d): ", st->cols - 1);
-
-        parsed_items = scanf("%d", &col);
-
-        if (parsed_items == EOF) {
-            printf("\nEOF detected: terminating input.\n");
-            return -1;
+    order[count++] = mid;
+    for (int i = 1; i <= cols / 2; i++) {
+        if (mid - i >= 0) {
+            order[count++] = mid - i;
         }
-
-        int c;
-        while ((c = getchar()) != '\n' && c != EOF) {
-        }
-
-        if (parsed_items == 1) {
-            if (col >= 0 && col < st->cols) {
-                return col;
-            } else {
-                printf("Error: Column out of bounds. Please try again.\n");
-            }
-        } else {
-            printf("Error: Invalid input. Please enter a valid number.\n");
+        if (mid + i < cols) {
+            order[count++] = mid + i;
         }
     }
 }
 
-int File_Move(const GameState *st, void *ctx) {
+static int get_dynamic_depth(int cols) {
+    if (cols <= 7) {
+        return 6;
+    } else if (cols <= 9) {
+        return 5;
+    } else {
+        return 4;
+    }
+}
+
+int human_move_cli(const GameState *st, void *ctx) {
+    (void)ctx; 
+
+    char line[64];
+    while (1) {
+        printf("Column (0-%d, 'u' undo, 'q' quit): ", st->cols - 1);
+
+        if (!fgets(line, sizeof(line), stdin)) {
+            printf("\n");
+            return MOVE_QUIT;
+        }
+
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+
+        if (*p == 'u' || *p == 'U') {
+            return MOVE_UNDO;
+        }
+        if (*p == 'q' || *p == 'Q') {
+            return MOVE_QUIT;
+        }
+
+        int col;
+        if (sscanf(p, "%d", &col) == 1) {
+            if (col == MOVE_UNDO) {
+                return MOVE_UNDO;
+            }
+            if (col >= 0 && col < st->cols) {
+                return col;
+            } else {
+                printf("Column out of bounds.\n");
+            }
+        } else {
+            printf("Invalid input. Enter column number, 'u', or 'q'.\n");
+        }
+    }
+}
+
+int file_move(const GameState *st, void *ctx) {
     FILE *file = (FILE *)ctx;
     
     if (!file) {
-        printf("Fatal Error: File pointer is NULL.\n");
+        fprintf(stderr, "error: file pointer is null\n");
         return -1;
     }
 
@@ -44,24 +77,24 @@ int File_Move(const GameState *st, void *ctx) {
     int read_status = fscanf(file, "%d", &col);
 
     if (read_status == EOF) {
-        printf("Notice: Reached End of File (EOF). The game is incomplete.\n");
+        printf("End of file reached.\n");
         return -1;
     } else if (read_status != 1) {
-        printf("Error: Corrupted or invalid data encountered in file.\n");
+        fprintf(stderr, "error: invalid data in file\n");
         return -1; 
     }
 
     if (col < 0 || col >= st->cols) {
-        printf("Error: File provided out-of-bounds column (%d).\n", col);
+        fprintf(stderr, "error: column %d out of bounds\n", col);
         return -1; 
     }
 
     if (!is_valid_move(st, col)) {
-        printf("Error: File provided full column (%d).\n", col);
-        return -1;
+        fprintf(stderr, "error: column %d is full\n", col);
+        return -1; 
     }
 
-    printf("File player selects column %d\n", col);
+    printf("File move: column %d\n", col);
     
     return col;
 }
@@ -70,7 +103,11 @@ int get_best_minimax_move(GameState *st, int depth) {
     int best_col = -1;
     int best_score = -1000000;
 
-    for (int c = 0; c < st->cols; c++) {
+    int order[MAX_DIM];
+    get_center_out_order(st->cols, order);
+
+    for (int i = 0; i < st->cols; i++) {
+        int c = order[i];
         if (is_valid_move(st, c)) {
             simulate_drop(st, c, AI_TOKEN);
             int score = minimax(st, depth - 1, -1000000, 1000000, 0);
@@ -82,12 +119,27 @@ int get_best_minimax_move(GameState *st, int depth) {
             }
         }
     }
+
+    if (best_col == -1) {
+        for (int i = 0; i < st->cols; i++) {
+            int c = order[i];
+            if (is_valid_move(st, c)) return c;
+        }
+    }
+
     return best_col;
 }
 
-int AI_Move(const GameState *st, void *ctx) {
+int ai_move(const GameState *st, void *ctx) {
     AIContext *ai = (AIContext *)ctx;
     
+    if (SDL_WasInit(SDL_INIT_VIDEO)) {
+        gui_indicate_ai_thinking(st);
+    } else {
+        printf("AI thinking...\n");
+        SDL_Delay(250);
+    }
+
     if (ai->difficulty == 0) {
         return random_move(st); 
     } 
@@ -95,7 +147,8 @@ int AI_Move(const GameState *st, void *ctx) {
         return heuristic_move((GameState *)st, AI_TOKEN, HUMAN_TOKEN); 
     } 
     else {
-        return get_best_minimax_move((GameState *)st, 6); 
+        int depth = get_dynamic_depth(st->cols);
+        return get_best_minimax_move((GameState *)st, depth); 
     }
 }
 
@@ -108,9 +161,13 @@ int minimax(GameState *st, int depth, int alpha, int beta, int is_maximizing) {
         return evaluate_board(st, AI_TOKEN); 
     }
 
+    int order[MAX_DIM];
+    get_center_out_order(st->cols, order);
+
     if (is_maximizing) {
         int max_eval = -999999;
-        for (int c = 0; c < st->cols; c++) {
+        for (int i = 0; i < st->cols; i++) {
+            int c = order[i];
             if (is_valid_move(st, c)) {
                 simulate_drop(st, c, AI_TOKEN);
                 
@@ -127,7 +184,8 @@ int minimax(GameState *st, int depth, int alpha, int beta, int is_maximizing) {
     } else {
         int min_eval = 999999; 
         
-        for (int c = 0; c < st->cols; c++) {
+        for (int i = 0; i < st->cols; i++) {
+            int c = order[i];
             if (is_valid_move(st, c)) {
                 simulate_drop(st, c, HUMAN_TOKEN); 
                 
@@ -251,15 +309,7 @@ void simulate_drop(GameState *st, int c, char token) {
     }
 }
 
-void undo_drop(GameState *st, int c) {
-    for (int r = 0; r < st->rows; r++) {
-        int index = r * st->cols + c;
-        if (st->board[index] != '.') {
-            st->board[index] = '.';
-            break;
-        }
-    }
-}
+
 
 int random_move(const GameState *st) {
     int valid_cols[MAX_DIM];
@@ -277,7 +327,11 @@ int random_move(const GameState *st) {
 }
 
 int heuristic_move(GameState *st, char ai_token, char human_token) {
-    for (int c = 0; c < st->cols; c++) {
+    int order[MAX_DIM];
+    get_center_out_order(st->cols, order);
+
+    for (int i = 0; i < st->cols; i++) {
+        int c = order[i];
         if (is_valid_move(st, c)) {
             simulate_drop(st, c, ai_token);
             if (check_win(st, ai_token)) {
@@ -288,7 +342,8 @@ int heuristic_move(GameState *st, char ai_token, char human_token) {
         }
     }
     
-    for (int c = 0; c < st->cols; c++) {
+    for (int i = 0; i < st->cols; i++) {
+        int c = order[i];
         if (is_valid_move(st, c)) {
             simulate_drop(st, c, human_token);
             if (check_win(st, human_token)) {
@@ -302,7 +357,8 @@ int heuristic_move(GameState *st, char ai_token, char human_token) {
     int best_col = -1;
     int max_eval = -999999;
     
-    for (int c = 0; c < st->cols; c++) {
+    for (int i = 0; i < st->cols; i++) {
+        int c = order[i];
         if (is_valid_move(st, c)) {
             simulate_drop(st, c, ai_token);
             
@@ -317,7 +373,8 @@ int heuristic_move(GameState *st, char ai_token, char human_token) {
     }
     
     if (best_col == -1) {
-        for (int c = 0; c < st->cols; c++) {
+        for (int i = 0; i < st->cols; i++) {
+            int c = order[i];
             if (is_valid_move(st, c)) return c;
         }
     }
@@ -325,30 +382,30 @@ int heuristic_move(GameState *st, char ai_token, char human_token) {
     return best_col;
 }
 
-int Replay_Move(const GameState *st, void *ctx) {
+int replay_move(const GameState *st, void *ctx) {
     ReplayContext *replay = (ReplayContext *)ctx;
     
     if (!replay || !replay->moves) {
-        printf("Error: Invalid replay context.\n");
+        fprintf(stderr, "error: invalid replay context\n");
         return -1;
     }
     
     if (replay->current_index >= replay->total_moves) {
-        printf("Replay complete: no more moves in history.\n");
+        printf("Replay finished.\n");
         return -1;
     }
     
     int col = replay->moves[replay->current_index++];
 
     if (!is_valid_move(st, col)) {
-        printf("Error: Saved game data contains an invalid move (column %d). Stopping replay.\n", col);
+        fprintf(stderr, "error: invalid move in replay data (column %d)\n", col);
         return -1;
     }
 
-    printf("\n[Replay] Player %c selects column %d.\n", 
+    printf("[Replay] Player %c -> column %d\n", 
            (replay->current_index % 2 != 0) ? 'X' : 'O', col);
            
-    printf("Press [Enter] to see the next move...");
+    printf("Press Enter for next move...");
     int c;
     while ((c = getchar()) != '\n' && c != EOF);
     

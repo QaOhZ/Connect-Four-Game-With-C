@@ -2,7 +2,7 @@
 
 GameState* init_game_state(int r, int c) {
     if (r < MIN_DIM || r > MAX_DIM || c < MIN_DIM || c > MAX_DIM) {
-        fprintf(stderr, "Error: Dimensions must be between 4 and 11.\n");
+        fprintf(stderr, "error: invalid dimensions (%dx%d), must be 4-11\n", r, c);
         return NULL; 
     }
 
@@ -75,16 +75,32 @@ int play_game(GameState *st, Player players[2], int *move_history, int *move_cou
 
         int col = current_player->move(st, current_player->ctx);
         
-        if (col == -1) {
-            printf("\nGame terminated: Player %c disconnected or input ended.\n", 
-                   current_player->token);
+        if (col == MOVE_QUIT) {
+            printf("\nPlayer %c quit.\n", current_player->token);
             winner = (current_turn == 0) ? players[1].token : players[0].token;
             game_over = 1;
             break;
         }
 
+        if (col == MOVE_UNDO) {
+            if (*move_count > 0) {
+                int steps = (players[0].move != players[1].move && *move_count >= 2) ? 2 : 1;
+                for (int s = 0; s < steps; s++) {
+                    (*move_count)--;
+                    int last_col = move_history[*move_count];
+                    undo_drop(st, last_col);
+                    current_turn = 1 - current_turn;
+                }
+                printf("\nUndid move.\n");
+                display(st);
+            } else {
+                printf("\nNothing to undo.\n");
+            }
+            continue;
+        }
+
         if (!is_valid_move(st, col)) {
-            printf("Error: Column %d is out of bounds or full. Try again.\n", col);
+            printf("Column %d is full or out of bounds.\n", col);
             continue;
         }
 
@@ -107,13 +123,13 @@ int play_game(GameState *st, Player players[2], int *move_history, int *move_cou
             
             if (check_win(st, current_player->token)) {
                 winner = current_player->token;
-                printf("*** Player %c wins! ***\n", current_player->token);
+                printf("Player %c wins!\n", current_player->token);
                 game_over = 1;
                 break;
             }
             
             if (check_draw(st)) {
-                printf("*** Draw match! No more valid moves. ***\n");
+                printf("Draw: board full.\n");
                 game_over = 1;
                 break;
             }
@@ -125,7 +141,7 @@ int play_game(GameState *st, Player players[2], int *move_history, int *move_cou
     return winner;
 }
 
-int check_win(const GameState *st, char token) {
+int get_winning_line(const GameState *st, char token, int win_coords[4][2]) {
     int rows = st->rows;
     int cols = st->cols;
 
@@ -135,6 +151,12 @@ int check_win(const GameState *st, char token) {
                 st->board[r * cols + (c + 1)] == token &&
                 st->board[r * cols + (c + 2)] == token &&
                 st->board[r * cols + (c + 3)] == token) {
+                if (win_coords) {
+                    for (int i = 0; i < 4; i++) {
+                        win_coords[i][0] = r;
+                        win_coords[i][1] = c + i;
+                    }
+                }
                 return 1;
             }
         }
@@ -146,6 +168,12 @@ int check_win(const GameState *st, char token) {
                 st->board[(r + 1) * cols + c] == token &&
                 st->board[(r + 2) * cols + c] == token &&
                 st->board[(r + 3) * cols + c] == token) {
+                if (win_coords) {
+                    for (int i = 0; i < 4; i++) {
+                        win_coords[i][0] = r + i;
+                        win_coords[i][1] = c;
+                    }
+                }
                 return 1;
             }
         }
@@ -157,6 +185,12 @@ int check_win(const GameState *st, char token) {
                 st->board[(r + 1) * cols + (c + 1)] == token &&
                 st->board[(r + 2) * cols + (c + 2)] == token &&
                 st->board[(r + 3) * cols + (c + 3)] == token) {
+                if (win_coords) {
+                    for (int i = 0; i < 4; i++) {
+                        win_coords[i][0] = r + i;
+                        win_coords[i][1] = c + i;
+                    }
+                }
                 return 1;
             }
         }
@@ -168,12 +202,22 @@ int check_win(const GameState *st, char token) {
                 st->board[(r - 1) * cols + (c + 1)] == token &&
                 st->board[(r - 2) * cols + (c + 2)] == token &&
                 st->board[(r - 3) * cols + (c + 3)] == token) {
+                if (win_coords) {
+                    for (int i = 0; i < 4; i++) {
+                        win_coords[i][0] = r - i;
+                        win_coords[i][1] = c + i;
+                    }
+                }
                 return 1;
             }
         }
     }
 
     return 0;
+}
+
+int check_win(const GameState *st, char token) {
+    return get_winning_line(st, token, NULL);
 }
 
 int is_valid_move(const GameState *st, int c) {
@@ -188,4 +232,14 @@ int check_draw(const GameState *st) {
         }
     }
     return 1;
+}
+
+void undo_drop(GameState *st, int c) {
+    for (int r = 0; r < st->rows; r++) {
+        int index = r * st->cols + c;
+        if (st->board[index] != '.') {
+            st->board[index] = '.';
+            break;
+        }
+    }
 }
